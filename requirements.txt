@@ -1,0 +1,6 @@
+aiogram==3.*
+python-dotenv
+openai
+torch
+whisper
+pydub
