@@ -100,7 +100,7 @@ async def handle_forwarded_voice(message: Message):
 
             if not summary.strip():
                 logging.warning("⚠️ Получен пустой ответ от GPT.")
-                await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось распознать или обработать голосовое сообщение.")
+                await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось распозн ть или обработать голосовое сообщение.")
             else:
                 await message.reply(f"<b>👤 {user_name}</b>\n{summary}")
 
