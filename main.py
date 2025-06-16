@@ -12,29 +12,30 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Загрузка токенов
+# Загрузка токенов из .env
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Логирование
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
-# Инициализация OpenAI и бота
+# Инициализация OpenAI клиента
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Инициализация Telegram-бота
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# GPT-функция: анализ аудиофайла
+# Обработка аудиофайла Whisper + GPT
 def generate_summary_from_audio(audio_path: str) -> str:
-    logging.info(f"📥 Отправляем файл в Whisper: {audio_path}")
+    logging.info(f"📥 Отправляем в Whisper: {audio_path}")
     with open(audio_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
@@ -56,8 +57,7 @@ def generate_summary_from_audio(audio_path: str) -> str:
         f"{transcript}"
     )
 
-    logging.info("✉️ Отправляем текст в GPT для составления конспекта...")
-
+    logging.info("✉️ Отправляем текст в GPT...")
     completion = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -69,38 +69,36 @@ def generate_summary_from_audio(audio_path: str) -> str:
     logging.info("✅ GPT вернул результат.")
     return result
 
-# Команда /start
+# /start
 @dp.message(CommandStart())
 async def start_handler(message: Message):
     await message.answer("Привет! Перешли мне голосовое сообщение, и я сделаю его краткий конспект.")
 
-# Обработка пересланного голосового (в т.ч. от скрытых аккаунтов)
+# Обработка голосового
 @dp.message(F.voice)
-async def handle_forwarded_voice(message: Message):
+async def handle_voice(message: Message):
     user_name = message.forward_from.full_name if message.forward_from else "Неизвестный пользователь"
-    logging.info(f"🎧 Обработка голосового от {user_name}")
+    logging.info(f"🎧 Голосовое от {user_name}")
 
     if message.voice.duration > 60:
-        await message.reply("⚠️ Сообщение длится более 60 секунд. Оно может быть обработано не полностью.")
+        await message.reply("⚠️ Сообщение дольше 60 секунд. Обработка может быть не полной.")
         logging.info("⚠️ Сообщение длиннее 60 секунд.")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "voice.ogg")
 
         try:
-            # Скачивание файла
             file = await bot.get_file(message.voice.file_id)
             file_bytes = await bot.download_file(file.file_path)
             with open(audio_path, "wb") as f:
                 f.write(file_bytes.getvalue())
-            logging.info(f"📂 Файл voice.ogg сохранён в {audio_path}")
+            logging.info(f"📂 Файл сохранён: {audio_path}")
 
-            # Анализ
             summary = generate_summary_from_audio(audio_path)
 
             if not summary.strip():
-                logging.warning("⚠️ Получен пустой ответ от GPT.")
-                await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось распозн ть или обработать голосовое сообщение.")
+                logging.warning("⚠️ Пустой ответ от GPT.")
+                await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось обработать сообщение.")
             else:
                 await message.reply(f"<b>👤 {user_name}</b>\n{summary}")
 
