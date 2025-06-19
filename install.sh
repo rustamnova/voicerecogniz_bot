@@ -2,19 +2,17 @@
 
 echo "🚀 Установка VoiceRecogniz Bot..."
 
-# === Определение пользователя и путей ===
-TARGET_USER="${SUDO_USER:-$USER}"
-USER_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+# === Настройка переменных ===
 BOT_NAME="voicerecogniz_bot"
-INSTALL_DIR="$USER_HOME/.bots/$BOT_NAME"
+BOT_DIR="/root/.bots/$BOT_NAME"
+ENV_FILE="$BOT_DIR/.env"
 SESSION_NAME="$BOT_NAME"
-ENV_FILE="$USER_HOME/.env"
 
-# === Ввод .env ===
-echo "📥 Вставьте весь блок .env (3 строки), затем нажмите Ctrl+D:"
-mkdir -p "$(dirname "$ENV_FILE")"
+# === Запрос переменных окружения (весь блок) ===
+echo "📥 Вставьте весь .env (GITHUB_TOKEN, BOT_TOKEN, OPENAI_API_KEY), затем нажмите Ctrl+D:"
+mkdir -p "$BOT_DIR"
 cat > "$ENV_FILE"
-echo "✅ Файл .env сохранён: $ENV_FILE"
+echo "✅ .env сохранён в $ENV_FILE"
 
 # === Загрузка переменных ===
 source "$ENV_FILE"
@@ -25,63 +23,60 @@ if [[ -z "<REDACTED>" || -z "$BOT_TOKEN" || -z "$OPENAI_API_KEY" ]]; then
   exit 1
 fi
 
-# === Проверка доступа к репозиторию ===
-echo "🔍 Проверка GitHub токена..."
-git ls-remote https://rustamnova:<REDACTED>@github.com/rustamnova/voicerecogniz_bot.git &>/dev/null
+# === Проверка GitHub-доступа ===
+echo "🔐 Проверка доступа к приватному репозиторию..."
+git ls-remote https://rustamnova:<REDACTED>@github.com/rustamnova/$BOT_NAME.git &>/dev/null
 if [ $? -ne 0 ]; then
   echo "❌ Ошибка авторизации в GitHub. Проверь GITHUB_TOKEN."
   exit 1
 fi
 
-# === Установка системных пакетов ===
-echo "📦 Устанавливаем зависимости..."
+# === Установка зависимостей ===
+echo "📦 Установка зависимостей..."
 apt update
 apt install -y software-properties-common git screen python-is-python3
 add-apt-repository -y ppa:deadsnakes/ppa
 apt update
 apt install -y python3.12 python3.12-venv python3.12-dev libffi-dev libssl-dev ffmpeg build-essential
 
-# === Клонирование проекта ===
-echo "🌐 Клонируем репозиторий..."
-rm -rf "$INSTALL_DIR"
-git clone https://rustamnova:<REDACTED>@github.com/rustamnova/voicerecogniz_bot.git "$INSTALL_DIR" || {
-  echo "❌ Ошибка при клонировании репозитория."
+# === Очистка и клонирование проекта ===
+echo "🌐 Клонируем $BOT_NAME..."
+rm -rf "$BOT_DIR"
+git clone https://rustamnova:<REDACTED>@github.com/rustamnova/$BOT_NAME.git "$BOT_DIR" || {
+  echo "❌ Ошибка клонирования репозитория."
   exit 1
 }
 
-cd "$INSTALL_DIR" || { echo "❌ Не удалось перейти в папку проекта"; exit 1; }
+cd "$BOT_DIR" || { echo "❌ Не удалось перейти в директорию бота"; exit 1; }
 
-# === Настройка виртуального окружения ===
-echo "🐍 Настраиваем venv..."
+# === Установка виртуального окружения ===
+echo "🐍 Создаём виртуальное окружение..."
 python3.12 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# === Копирование .env внутрь проекта ===
-cp "$ENV_FILE" "$INSTALL_DIR/.env"
-
-# === Создание скрипта запуска ===
+# === Создание start.sh ===
 echo "⚙️ Создаём start.sh..."
 cat <<EOF > start.sh
 #!/bin/bash
 cd "\$(dirname "\$0")"
 source venv/bin/activate
 touch log.txt
-echo "[\$(date)] Запуск VoiceRecogniz Bot..." >> log.txt
+echo "[\$(date)] Запуск $BOT_NAME..." >> log.txt
 python voicerecogniz_bot.py >> log.txt 2>&1
 EOF
+
 chmod +x start.sh
 
-# === Завершение старой сессии, если есть ===
+# === Запуск screen-сессии ===
 if screen -list | grep -q "\\.${SESSION_NAME}"; then
-  echo "🧹 Завершаем предыдущую screen-сессию $SESSION_NAME..."
+  echo "🧹 Завершаем старую screen-сессию..."
   screen -S "$SESSION_NAME" -X quit
 fi
 
-# === Запуск новой сессии ===
-echo "📺 Запуск новой screen-сессии: $SESSION_NAME"
-screen -dmS "$SESSION_NAME" "$INSTALL_DIR/start.sh"
+echo "📺 Запускаем бота в новой screen-сессии: $SESSION_NAME"
+screen -dmS "$SESSION_NAME" "$BOT_DIR/start.sh"
 
-echo "✅ Бот VoiceRecogniz установлен и работает!"
-echo "ℹ️ Чтобы подключиться к сессии: screen -r $SESSION_NAME"
+echo "✅ Бот $BOT_NAME установлен и запущен!"
+echo "ℹ️ Подключиться: screen -r $SESSION_NAME"
