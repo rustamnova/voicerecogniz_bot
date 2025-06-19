@@ -44,8 +44,8 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # === main.py ===
-echo "📄 Пишем main.py..."
-cat <<'PYCODE' > main.py
+echo "📄 Пишем voicerecogniz_bot.py..."
+cat <<'PYCODE' > voicerecogniz_bot.py
 <REPLACE_WITH_MAIN_CODE>
 PYCODE
 
@@ -80,7 +80,7 @@ echo "✅ Бот VoiceRecogniz установлен и запущен!"
 echo "📺 Подключиться: screen -r $SESSION_NAME"
 """
 
-# Подставим Python-код (main.py) внутрь скрипта
+# Подставим Python-код (voicerecogniz_bot.py) внутрь скрипта
 main_code = Path("main.py").read_text() if Path("main.py").exists() else ""
 voicebot_script = voicebot_script.replace("<REPLACE_WITH_MAIN_CODE>", main_code.strip())
 
