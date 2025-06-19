@@ -10,29 +10,23 @@ INSTALL_DIR="$USER_HOME/.bots/$BOT_NAME"
 SESSION_NAME="$BOT_NAME"
 ENV_FILE="$USER_HOME/.env"
 
-# === Запрашиваем токены ===
-echo "🔐 Введите необходимые токены:"
-read -rp "GITHUB_TOKEN: " GITHUB_TOKEN
-read -rp "BOT_TOKEN: " BOT_TOKEN
-read -rp "OPENAI_API_KEY: " OPENAI_API_KEY
+# === Ввод .env как блока ===
+echo "📥 Вставьте весь блок .env (3 строки), затем нажмите Ctrl+D:"
+mkdir -p "$(dirname "$ENV_FILE")"
+cat > "$ENV_FILE"
+echo "✅ Файл .env сохранён: $ENV_FILE"
 
-# === Проверка пустых значений ===
+# === Загрузка переменных из файла ===
+source "$ENV_FILE"
+
+# === Проверка обязательных переменных ===
 if [[ -z "<REDACTED>" || -z "$BOT_TOKEN" || -z "$OPENAI_API_KEY" ]]; then
-  echo "❌ Один из токенов не введён. Прерывание установки."
+  echo "❌ Один из токенов не задан. Проверь содержимое .env"
   exit 1
 fi
 
-# === Сохраняем в .env ===
-mkdir -p "$(dirname "$ENV_FILE")"
-cat <<EOF > "$ENV_FILE"
-GITHUB_TOKEN=<REDACTED>
-BOT_TOKEN=$BOT_TOKEN
-OPENAI_API_KEY=$OPENAI_API_KEY
-EOF
-echo "✅ Файл .env создан: $ENV_FILE"
-
 # === Тест авторизации GitHub токена ===
-echo "🔍 Проверка доступа к приватному репозиторию..."
+echo "🔍 Проверка доступа к репозиторию..."
 git ls-remote https://rustamnova:<REDACTED>@github.com/rustamnova/voicerecogniz_bot.git &>/dev/null
 if [ $? -ne 0 ]; then
   echo "❌ GITHUB_TOKEN недействителен или нет доступа к репозиторию."
@@ -40,7 +34,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # === Установка системных пакетов ===
-echo "📦 Установка зависимостей..."
+echo "📦 Устанавливаем зависимости..."
 apt update
 apt install -y software-properties-common git screen python-is-python3
 add-apt-repository -y ppa:deadsnakes/ppa
@@ -61,8 +55,8 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# === Копируем .env в папку проекта ===
-cp "$ENV_FILE" "$INSTALL_DIR/.env"
+# === Копируем .env в проект ===
+cp "$ENV_FILE" .env
 
 # === Скрипт запуска ===
 echo "⚙️ Создаём start.sh..."
@@ -76,14 +70,14 @@ python main.py >> log.txt 2>&1
 EOF
 chmod +x start.sh
 
-# === Завершение screen-сессии, если была ===
+# === Завершение старой screen-сессии ===
 if screen -list | grep -q "\\.${SESSION_NAME}"; then
-  echo "🧹 Завершаем старую screen-сессию $SESSION_NAME..."
+  echo "🧹 Завершаем screen-сессию $SESSION_NAME..."
   screen -S "$SESSION_NAME" -X quit
 fi
 
-# === Запуск в новой screen-сессии ===
-echo "📺 Запускаем бота в screen: $SESSION_NAME"
+# === Запуск новой screen-сессии ===
+echo "📺 Запуск в screen: $SESSION_NAME"
 screen -dmS "$SESSION_NAME" "$INSTALL_DIR/start.sh"
 
 echo "✅ VoiceRecogniz Bot установлен и работает!"
