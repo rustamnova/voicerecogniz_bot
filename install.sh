@@ -1,83 +1,85 @@
 #!/bin/bash
 
-echo "🚀 Установка VoiceRecogniz Bot..."
+echo "🚀 Универсальная установка Telegram-бота..."
 
-# === Название и структура ===
-BOT_NAME="voicerecogniz_bot"
-BOT_ROOT="/root/.bots"
-BOT_DIR="$BOT_ROOT/$BOT_NAME"
-SESSION_NAME="$BOT_NAME"
-ENV_FILE="$BOT_DIR/.env"
+WORKDIR="/root/.bots"
+mkdir -p "$WORKDIR"
 
-# === Ввод .env ===
-echo "📥 Вставьте содержимое .env (включая GITHUB_TOKEN, BOT_TOKEN, OPENAI_API_KEY), затем нажмите Ctrl+D:"
-mkdir -p "$BOT_DIR"
-cat > "$ENV_FILE"
-echo "✅ Файл .env сохранён: $ENV_FILE"
+# === Шаг 1: Получение .env ===
+echo "📥 Вставьте .env файл (GITHUB_TOKEN, BOT_TOKEN, OPENAI_API_KEY, REPO_URL), затем нажмите Ctrl+D:"
+ENV_TEMP=$(mktemp)
+cat > "$ENV_TEMP"
+source "$ENV_TEMP"
 
-# === Загрузка токенов ===
-source "$ENV_FILE"
-if [[ -z "<REDACTED>" || -z "$BOT_TOKEN" || -z "$OPENAI_API_KEY" ]]; then
-  echo "❌ Не все переменные заданы в .env"
+# === Проверка переменных ===
+if [[ -z "<REDACTED>" || -z "$BOT_TOKEN" || -z "$REPO_URL" ]]; then
+  echo "❌ Не заданы GITHUB_TOKEN, BOT_TOKEN или REPO_URL"
   exit 1
 fi
 
-# === Проверка GitHub-доступа ===
-echo "🔐 Проверка доступа к приватному репозиторию..."
-git ls-remote https://rustamnova:<REDACTED>@github.com/rustamnova/$BOT_NAME.git &>/dev/null
-if [ $? -ne 0 ]; then
-  echo "❌ Ошибка авторизации в GitHub. Проверь GITHUB_TOKEN."
-  exit 1
-fi
+# === Шаг 2: Клонирование репозитория ===
+REPO=$(echo "$REPO_URL" | sed -E 's|https://github.com/||;s|\.git$||')
+BOT_NAME=$(basename "$REPO")
+BOT_DIR="$WORKDIR/$BOT_NAME"
 
-# === Установка зависимостей ===
-echo "📦 Установка системных пакетов..."
-apt update
-apt install -y software-properties-common git screen python-is-python3
-add-apt-repository -y ppa:deadsnakes/ppa
-apt update
-apt install -y python3.12 python3.12-venv python3.12-dev libffi-dev libssl-dev ffmpeg build-essential
-
-# === Клонирование проекта ===
-echo "🌐 Клонирование репозитория..."
+echo "🌐 Клонируем репозиторий $REPO_URL → $BOT_DIR"
 rm -rf "$BOT_DIR"
-git clone https://rustamnova:<REDACTED>@github.com/rustamnova/$BOT_NAME.git "$BOT_DIR" || {
-  echo "❌ Ошибка клонирования."
+git clone https://<REDACTED>@github.com/$REPO.git "$BOT_DIR" || {
+  echo "❌ Ошибка клонирования"
   exit 1
 }
 
-cd "$BOT_DIR" || { echo "❌ Ошибка входа в директорию $BOT_DIR"; exit 1; }
+# === Копирование .env ===
+cp "$ENV_TEMP" "$BOT_DIR/.env"
+rm "$ENV_TEMP"
 
-# === Установка виртуального окружения ===
-echo "🐍 Настройка venv..."
+# === Переход в директорию и проверка основного .py файла ===
+cd "$BOT_DIR" || exit 1
+if [ ! -f "$BOT_NAME.py" ]; then
+  echo "❌ Не найден файл $BOT_NAME.py"
+  exit 1
+fi
+
+# === Установка системных пакетов ===
+echo "📦 Установка зависимостей..."
+apt update
+apt install -y python3.12 python3.12-venv python3.12-dev git screen ffmpeg build-essential
+
+# === Виртуальное окружение ===
+echo "🐍 Настройка Python-окружения..."
 python3.12 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.txt || true
 
-# === Копируем .env в корень проекта ===
-cp "$ENV_FILE" "$BOT_DIR/.env"
-
-# === Создание start.sh ===
-echo "⚙️ Создание start.sh..."
+# === Генерация start.sh ===
+echo "⚙️ Генерация start.sh..."
 cat <<EOF > start.sh
 #!/bin/bash
 cd "\$(dirname "\$0")"
 source venv/bin/activate
-touch log.txt
-echo "[\$(date)] Запуск $BOT_NAME..." >> log.txt
-python voicerecogniz_bot.py >> log.txt 2>&1
+touch log.txt error.log
+echo "[\$(date)] ▶️ Запуск $BOT_NAME..." >> log.txt
+python $BOT_NAME.py >> log.txt 2>> error.log
 EOF
+
 chmod +x start.sh
 
-# === Проверка и запуск screen-сессии ===
-if screen -list | grep -q "\\.${SESSION_NAME}"; then
-  echo "🧹 Завершаем предыдущую screen-сессию $SESSION_NAME"
-  screen -S "$SESSION_NAME" -X quit
+# === Завершение старых screen-сессий ===
+echo "🧹 Завершаем старые screen-сессии: $BOT_NAME"
+screen -ls | grep "\.${BOT_NAME}" | awk '{print $1}' | while read -r session_id; do
+  screen -S "$session_id" -X quit
+done
+
+# === Запуск новой screen-сессии ===
+echo "📺 Запуск новой screen-сессии..."
+screen -dmS "$BOT_NAME" "$BOT_DIR/start.sh"
+
+sleep 1
+if screen -list | grep -q "\.${BOT_NAME}"; then
+  echo "✅ Бот $BOT_NAME запущен в screen-сессии"
+else
+  echo "❌ Ошибка запуска screen-сессии"
 fi
 
-echo "📺 Запуск screen-сессии $SESSION_NAME..."
-screen -dmS "$SESSION_NAME" "$BOT_DIR/start.sh"
-
-echo "✅ Установка завершена! Бот работает в screen-сессии: $SESSION_NAME"
-echo "ℹ️ Подключиться: screen -r $SESSION_NAME"
+echo "ℹ️ Подключиться: screen -r $BOT_NAME"
