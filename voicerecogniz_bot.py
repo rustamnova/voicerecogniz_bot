@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
+from shutil import copyfile
 
 from aiogram import F, Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -12,30 +13,29 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Загрузка токенов из .env
+# === Настройки ===
+DEBUG = True
+
+# Загрузка переменных из .env
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+USER_ID = int(os.getenv("USER_ID", "0"))
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
-# Инициализация OpenAI клиента
+# Инициализация OpenAI и бота
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Инициализация Telegram-бота
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
-# Обработка аудиофайла Whisper + GPT
+# === GPT-функция ===
 def generate_summary_from_audio(audio_path: str) -> str:
-    logging.info(f"📥 Отправляем в Whisper: {audio_path}")
+    logging.info(f"📥 Whisper получает файл: {audio_path}")
     with open(audio_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
@@ -44,7 +44,11 @@ def generate_summary_from_audio(audio_path: str) -> str:
             language="ru"
         )
 
-    logging.info(f"📝 Распознанный текст: {transcript[:100]}..." if transcript else "⚠️ Whisper не распознал текст.")
+    if not transcript or not transcript.strip():
+        logging.warning("⚠️ Whisper не распознал текст.")
+        return ""
+
+    logging.info(f"📝 Распознанный текст: {transcript[:100]}...")
 
     prompt = (
         "Распознай текст голосового сообщения и оформи его в читабельном виде как письменный монолог — "
@@ -65,40 +69,57 @@ def generate_summary_from_audio(audio_path: str) -> str:
         max_tokens=300
     )
 
-    result = completion.choices[0].message.content.strip()
-    logging.info("✅ GPT вернул результат.")
-    return result
+    return completion.choices[0].message.content.strip()
 
-# /start
+# === Команда /start ===
 @dp.message(CommandStart())
 async def start_handler(message: Message):
+    if message.from_user.id != USER_ID:
+        logging.warning(f"⛔ Попытка запуска от чужого пользователя: {message.from_user.id}")
+        await message.reply("⛔ Вы не авторизованы для использования этого бота.")
+        return
+
     await message.answer("Привет! Перешли мне голосовое сообщение, и я сделаю его краткий конспект.")
 
-# Обработка голосового
+# === Обработка голосового ===
 @dp.message(F.voice)
 async def handle_voice(message: Message):
+    if message.from_user.id != USER_ID:
+        logging.warning(f"⛔ Запрос от неавторизованного пользователя: {message.from_user.id}")
+        await message.reply("⛔ Вы не авторизованы для использования этого бота.")
+        return
+
     user_name = message.forward_from.full_name if message.forward_from else "Неизвестный пользователь"
-    logging.info(f"🎧 Голосовое от {user_name}")
+    logging.info(f"🎧 Голосовое от: {user_name}")
+    logging.info(f"⏱ Длительность: {message.voice.duration} сек. | 📦 Размер: {message.voice.file_size} байт.")
 
     if message.voice.duration > 60:
-        await message.reply("⚠️ Сообщение дольше 60 секунд. Обработка может быть не полной.")
-        logging.info("⚠️ Сообщение длиннее 60 секунд.")
+        await message.reply("⚠️ Сообщение длится более 60 секунд. Оно может быть обработано не полностью.")
+        logging.info("⚠️ Предупреждение: длительное аудио.")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "voice.ogg")
 
         try:
+            # Скачивание
             file = await bot.get_file(message.voice.file_id)
             file_bytes = await bot.download_file(file.file_path)
             with open(audio_path, "wb") as f:
                 f.write(file_bytes.getvalue())
             logging.info(f"📂 Файл сохранён: {audio_path}")
 
+            # Анализ
             summary = generate_summary_from_audio(audio_path)
 
             if not summary.strip():
-                logging.warning("⚠️ Пустой ответ от GPT.")
-                await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось обработать сообщение.")
+                logging.warning("⚠️ GPT вернул пустой результат.")
+                if DEBUG:
+                    os.makedirs("debug_audio", exist_ok=True)
+                    saved_path = f"debug_audio/voice_{message.message_id}.ogg"
+                    copyfile(audio_path, saved_path)
+                    logging.info(f"🧪 Аудио сохранено для отладки: {saved_path}")
+
+                await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось распознать сообщение. Попробуй другое.")
             else:
                 await message.reply(f"<b>👤 {user_name}</b>\n{summary}")
 
@@ -106,7 +127,7 @@ async def handle_voice(message: Message):
             logging.exception("❌ Ошибка при обработке голосового:")
             await message.reply(f"<b>👤 {user_name}</b>\n❌ Произошла ошибка. Попробуй позже.")
 
-# Запуск бота
+# === Запуск бота ===
 async def main():
     await dp.start_polling(bot)
 
