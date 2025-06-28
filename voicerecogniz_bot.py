@@ -20,7 +20,7 @@ DEBUG = True
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-USER_ID = int(os.getenv("USER_ID", "0"))
+USER_IDS = list(map(int, os.getenv("USER_IDS", "").split(",")))  # 👈 исправлено
 
 # Логирование
 logging.basicConfig(
@@ -74,7 +74,7 @@ def generate_summary_from_audio(audio_path: str) -> str:
 # === Команда /start ===
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-    if message.from_user.id != USER_ID:
+    if message.from_user.id not in USER_IDS:
         logging.warning(f"⛔ Попытка запуска от чужого пользователя: {message.from_user.id}")
         await message.reply("⛔ Вы не авторизованы для использования этого бота.")
         return
@@ -84,7 +84,7 @@ async def start_handler(message: Message):
 # === Обработка голосового ===
 @dp.message(F.voice)
 async def handle_voice(message: Message):
-    if message.from_user.id != USER_ID:
+    if message.from_user.id not in USER_IDS:
         logging.warning(f"⛔ Запрос от неавторизованного пользователя: {message.from_user.id}")
         await message.reply("⛔ Вы не авторизованы для использования этого бота.")
         return
