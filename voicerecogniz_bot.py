@@ -1,7 +1,10 @@
 import asyncio
 import logging
+import logging.handlers
 import os
+import sys
 import tempfile
+from datetime import datetime
 from shutil import copyfile
 
 from aiogram import F, Bot, Dispatcher
@@ -23,10 +26,34 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 USER_IDS = list(map(int, os.getenv("USER_IDS", "").split(",")))  # 👈 исправлено
 
 # Логирование
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_LOGS_DIR = os.path.join(_BASE_DIR, "logs")
+os.makedirs(_LOGS_DIR, exist_ok=True)
+
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+_worklog_handler = logging.handlers.RotatingFileHandler(
+    os.path.join(_LOGS_DIR, "worklog.txt"), maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
 )
+_worklog_handler.setLevel(logging.INFO)
+_worklog_handler.setFormatter(_fmt)
+
+_error_handler = logging.handlers.RotatingFileHandler(
+    os.path.join(_LOGS_DIR, "errors.txt"), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+)
+_error_handler.setLevel(logging.ERROR)
+_error_handler.setFormatter(_fmt)
+
+_console_handler = logging.StreamHandler(sys.stdout)
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_worklog_handler, _error_handler, _console_handler])
+
+
+def log_install(msg: str):
+    with open(os.path.join(_LOGS_DIR, "install.txt"), "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
 
 # Инициализация OpenAI и бота
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -129,7 +156,12 @@ async def handle_voice(message: Message):
 
 # === Запуск бота ===
 async def main():
-    await dp.start_polling(bot)
+    log_install(f"=== Запуск voicerecogniz_bot === (Python {sys.version.split()[0]})")
+    logging.info("voicerecogniz_bot запущен")
+    try:
+        await dp.start_polling(bot)
+    finally:
+        log_install("=== Остановка voicerecogniz_bot ===")
 
 if __name__ == "__main__":
     asyncio.run(main())
