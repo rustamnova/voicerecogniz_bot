@@ -20,7 +20,7 @@ from openai import OpenAI
 DEBUG = True
 
 # Загрузка переменных из .env
-load_dotenv()
+load_dotenv(override=True)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 USER_IDS = list(map(int, os.getenv("USER_IDS", "").split(",")))  # 👈 исправлено
@@ -120,9 +120,11 @@ async def handle_voice(message: Message):
     logging.info(f"🎧 Голосовое от: {user_name}")
     logging.info(f"⏱ Длительность: {message.voice.duration} сек. | 📦 Размер: {message.voice.file_size} байт.")
 
-    if message.voice.duration > 60:
-        await message.reply("⚠️ Сообщение длится более 60 секунд. Оно может быть обработано не полностью.")
-        logging.info("⚠️ Предупреждение: длительное аудио.")
+    # Максимум 10 минут (600 секунд)
+    if message.voice.duration > 600:
+        await message.reply(f"⚠️ Сообщение слишком длинное ({message.voice.duration} сек). Максимум — 10 минут (600 сек).")
+        logging.warning(f"⚠️ Отклонено: аудио длится {message.voice.duration} сек (лимит 600 сек).")
+        return
 
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "voice.ogg")
