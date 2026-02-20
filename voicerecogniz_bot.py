@@ -93,10 +93,34 @@ def generate_summary_from_audio(audio_path: str) -> str:
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
-        max_tokens=300
+        max_tokens=4000
     )
 
     return completion.choices[0].message.content.strip()
+
+# === Отправка длинных сообщений (Telegram лимит 4096 символов) ===
+async def send_long_message(message: Message, text: str):
+    limit = 4096
+    if len(text) <= limit:
+        await message.reply(text)
+        return
+    # Разбиваем по абзацам, не разрывая слова
+    parts = []
+    while len(text) > limit:
+        split_at = text.rfind("\n\n", 0, limit)
+        if split_at == -1:
+            split_at = text.rfind("\n", 0, limit)
+        if split_at == -1:
+            split_at = limit
+        parts.append(text[:split_at])
+        text = text[split_at:].lstrip()
+    if text:
+        parts.append(text)
+    for i, part in enumerate(parts):
+        if i == 0:
+            await message.reply(part)
+        else:
+            await message.answer(part)
 
 # === Команда /start ===
 @dp.message(CommandStart())
@@ -150,7 +174,7 @@ async def handle_voice(message: Message):
 
                 await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось распознать сообщение. Попробуй другое.")
             else:
-                await message.reply(f"<b>👤 {user_name}</b>\n{summary}")
+                await send_long_message(message, f"<b>👤 {user_name}</b>\n{summary}")
 
         except Exception as e:
             logging.exception("❌ Ошибка при обработке голосового:")
