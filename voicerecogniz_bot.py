@@ -90,7 +90,7 @@ def generate_summary_from_audio(audio_path: str) -> str:
 
     logging.info("✉️ Отправляем текст в GPT...")
     completion = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
         max_tokens=4000
