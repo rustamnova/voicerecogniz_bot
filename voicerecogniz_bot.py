@@ -150,6 +150,8 @@ async def handle_voice(message: Message):
         logging.warning(f"⚠️ Отклонено: аудио длится {message.voice.duration} сек (лимит 600 сек).")
         return
 
+    status = await message.answer("⏳ Скачиваю аудио...")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "voice.ogg")
 
@@ -160,6 +162,8 @@ async def handle_voice(message: Message):
             with open(audio_path, "wb") as f:
                 f.write(file_bytes.getvalue())
             logging.info(f"📂 Файл сохранён: {audio_path}")
+
+            await status.edit_text("🎙 Распознаю речь через Whisper...")
 
             # Анализ
             summary = generate_summary_from_audio(audio_path)
@@ -172,20 +176,31 @@ async def handle_voice(message: Message):
                     copyfile(audio_path, saved_path)
                     logging.info(f"🧪 Аудио сохранено для отладки: {saved_path}")
 
+                await status.delete()
                 await message.reply(f"<b>👤 {user_name}</b>\n⚠️ Не удалось распознать сообщение. Попробуй другое.")
             else:
+                await status.delete()
                 await send_long_message(message, f"<b>👤 {user_name}</b>\n{summary}")
 
         except Exception as e:
             logging.exception("❌ Ошибка при обработке голосового:")
+            await status.delete()
             await message.reply(f"<b>👤 {user_name}</b>\n❌ Произошла ошибка. Попробуй позже.")
 
 # === Запуск бота ===
+async def on_startup():
+    for uid in USER_IDS:
+        try:
+            await bot.send_message(uid, "✅ VoiceBot запущен! Пришли голосовое — распознаю и сделаю конспект 🎙")
+        except Exception:
+            pass
+
+
 async def main():
     log_install(f"=== Запуск voicerecogniz_bot === (Python {sys.version.split()[0]})")
     logging.info("voicerecogniz_bot запущен")
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, on_startup=on_startup)
     finally:
         log_install("=== Остановка voicerecogniz_bot ===")
 
