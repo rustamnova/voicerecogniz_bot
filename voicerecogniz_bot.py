@@ -9,12 +9,16 @@ from shutil import copyfile
 
 from aiogram import F, Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from openai import OpenAI
+
+try:
+    from aiogram.client.default import DefaultBotProperties
+except ImportError:
+    DefaultBotProperties = None
 
 # === Настройки ===
 DEBUG = True
@@ -57,7 +61,10 @@ def log_install(msg: str):
 
 # Инициализация OpenAI и бота
 client = OpenAI(api_key=OPENAI_API_KEY)
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+if DefaultBotProperties is not None:
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+else:
+    bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(storage=MemoryStorage())
 
 # === GPT-функция ===
@@ -92,7 +99,7 @@ def generate_summary_from_audio(audio_path: str) -> str:
     completion = client.chat.completions.create(
         model="gpt-5-mini",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=4000
+        max_completion_tokens=4000
     )
 
     return completion.choices[0].message.content.strip()
