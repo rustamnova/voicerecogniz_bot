@@ -1,4 +1,4 @@
-#\!/bin/bash
+#!/bin/bash
 cd "$(dirname "$0")"
 BOT_NAME=$(basename "$(pwd)")
 SESSION_NAME="$BOT_NAME"
