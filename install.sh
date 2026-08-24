@@ -1,129 +1,65 @@
 #!/bin/bash
+# Установка voicerecogniz_bot.
+#
+# Скрипт рассчитан на то, что репозиторий уже склонирован и вы находитесь внутри него:
+#
+#   git clone https://github.com/rustamnova/voicerecogniz_bot.git
+#   cd voicerecogniz_bot
+#   bash install.sh
+#
+# Требуется Debian/Ubuntu с sudo либо запуск от root. На других системах поставьте
+# зависимости из блока apt вручную и запустите скрипт с SKIP_APT=1.
 
-WORKDIR="/root/.bots"
-mkdir -p "$WORKDIR"
+set -euo pipefail
 
-# === Шаг 1: Получение .env ===
-echo "📥 Вставьте .env файл (BOT_TOKEN, GITHUB_TOKEN, REPO_URL, ...), затем нажмите Ctrl+D:"
-ENV_TEMP=$(mktemp)
-cat > "$ENV_TEMP"
-source "$ENV_TEMP"
+BOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$BOT_DIR"
 
-# === Проверка переменных ===
-if [[ -z "<REDACTED>" || -z "$BOT_TOKEN" || -z "$REPO_URL" ]]; then
-  echo "❌ Не заданы GITHUB_TOKEN, BOT_TOKEN или REPO_URL"
-  exit 1
-fi
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+SKIP_APT="${SKIP_APT:-0}"
 
-# === Шаг 2: Клонирование репозитория ===
-REPO=$(echo "$REPO_URL" | sed -E 's|https://github.com/||;s|\.git$||')
-BOT_NAME=$(basename "$REPO")
-BOT_DIR="$WORKDIR/$BOT_NAME"
+echo "📁 Каталог установки: $BOT_DIR"
 
-echo "🌐 Клонируем репозиторий $REPO_URL → $BOT_DIR"
-rm -rf "$BOT_DIR"
-git clone https://<REDACTED>@github.com/$REPO.git "$BOT_DIR" || {
-  echo "❌ Ошибка клонирования"
-  exit 1
-}
-
-# === Инициализация директории логов ===
-mkdir -p "$BOT_DIR/logs"
-INSTALL_LOG="$BOT_DIR/logs/install.txt"
-touch "$INSTALL_LOG"
-
-# Все дальнейшие echo пишутся и в консоль, и в install.txt
-exec > >(tee -a "$INSTALL_LOG") 2>&1
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🚀 Установка бота $BOT_NAME начата"
-
-# === Копирование .env ===
-cp "$ENV_TEMP" "$BOT_DIR/.env"
-rm "$ENV_TEMP"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ .env скопирован"
-
-# === Переход в директорию и проверка основного .py файла ===
-cd "$BOT_DIR" || exit 1
-if [ ! -f "$BOT_NAME.py" ]; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Не найден файл $BOT_NAME.py"
-  exit 1
-fi
-
-# === Установка системных пакетов ===
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 📦 Установка системных зависимостей..."
-apt update -qq
-apt install -y python3.12 python3.12-venv python3.12-dev git screen ffmpeg build-essential
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Системные пакеты установлены"
-
-# === Виртуальное окружение ===
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🐍 Настройка Python-окружения..."
-python3.12 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt || true
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Python-окружение готово"
-
-# === Генерация скриптов ===
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚙️ Генерация скриптов..."
-
-cat > start.sh << 'STARTEOF'
-#!/bin/bash
-cd "$(dirname "$0")"
-BOT_NAME=$(basename "$(pwd)")
-source venv/bin/activate
-mkdir -p logs
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ▶️ Запуск $BOT_NAME..." >> logs/worklog.txt
-python $BOT_NAME.py 2>> logs/errors.txt
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⏹ $BOT_NAME остановлен (exit $?)" >> logs/worklog.txt
-STARTEOF
-
-cat > stop.sh << 'STOPEOF'
-#!/bin/bash
-cd "$(dirname "$0")"
-BOT_NAME=$(basename "$(pwd)")
-SESSION_NAME="$BOT_NAME"
-if screen -list | grep -q "\.${SESSION_NAME}"; then
-  echo "🛑 Остановка screen-сессии $SESSION_NAME..."
-  screen -S "$SESSION_NAME" -X quit
-  echo "✅ $BOT_NAME остановлен."
+# ─── Системные зависимости ───────────────────────────────────────────────────
+# ffmpeg обязателен: Telegram отдаёт голосовые в OGG/Opus, а Whisper ждёт другой формат.
+if [ "$SKIP_APT" != "1" ]; then
+    echo "📦 Установка системных зависимостей..."
+    SUDO=""
+    [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+    $SUDO apt-get update -qq
+    $SUDO apt-get install -y python3 python3-venv python3-dev git ffmpeg build-essential
+    echo "✅ Системные пакеты установлены"
 else
-  echo "⚠️ screen-сессия $SESSION_NAME не найдена."
+    echo "⏭  Пропускаю apt (SKIP_APT=1). Убедитесь, что ffmpeg установлен."
 fi
-STOPEOF
 
-cat > restart.sh << 'RESTARTEOF'
-#!/bin/bash
-cd "$(dirname "$0")"
-BOT_NAME=$(basename "$(pwd)")
-SESSION_NAME="$BOT_NAME"
-if screen -list | grep -q "\.${SESSION_NAME}"; then
-  echo "🛑 Остановка screen-сессии $SESSION_NAME..."
-  screen -S "$SESSION_NAME" -X quit
-fi
-echo "🔄 Перезапуск $BOT_NAME..."
-screen -dmS "$SESSION_NAME" ./start.sh
-echo "✅ $BOT_NAME перезапущен в screen: $SESSION_NAME"
-RESTARTEOF
+# ─── Python-окружение ────────────────────────────────────────────────────────
+echo "🐍 Настройка виртуального окружения..."
+"$PYTHON_BIN" -m venv venv
+# shellcheck disable=SC1091
+source venv/bin/activate
+pip install --quiet --upgrade pip
+pip install --quiet -r requirements.txt
+echo "✅ Зависимости Python установлены"
 
-chmod +x start.sh stop.sh restart.sh
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Скрипты созданы"
-
-# === Завершение старых screen-сессий ===
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🧹 Завершаем старые screen-сессии: $BOT_NAME"
-screen -ls | grep "\.${BOT_NAME}" | awk '{print $1}' | while read -r session_id; do
-  screen -S "$session_id" -X quit
-done
-
-# === Запуск новой screen-сессии ===
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 📺 Запуск новой screen-сессии..."
-screen -dmS "$BOT_NAME" "$BOT_DIR/start.sh"
-
-sleep 1
-if screen -list | grep -q "\.${BOT_NAME}"; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Бот $BOT_NAME запущен в screen-сессии"
+# ─── Конфигурация ────────────────────────────────────────────────────────────
+if [ ! -f .env ]; then
+    cp .env.example .env
+    echo
+    echo "⚠️  Создан .env из шаблона — заполните его перед запуском:"
+    echo "    BOT_TOKEN       токен бота от @BotFather"
+    echo "    OPENAI_API_KEY  ключ OpenAI (platform.openai.com/api-keys)"
+    echo "    USER_IDS        ваш Telegram ID через запятую (узнать: @userinfobot)"
+    echo
+    echo "    nano $BOT_DIR/.env"
 else
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ Ошибка запуска screen-сессии"
+    echo "ℹ️  .env уже существует, не трогаю"
 fi
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 🏁 Установка завершена. Логи: $BOT_DIR/logs/"
-echo "ℹ️  Подключиться: screen -r $BOT_NAME"
+chmod +x start.sh stop.sh restart.sh 2>/dev/null || true
+
+echo
+echo "🏁 Установка завершена."
+echo "   Запуск:      bash start.sh"
+echo "   В фоне:      screen -dmS voicerecogniz_bot ./start.sh"
+echo "   Остановка:   bash stop.sh"
